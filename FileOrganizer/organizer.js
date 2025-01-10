@@ -1,66 +1,70 @@
-// Import the file system module to work with the file system
-const fs = require('fs'); 
 
-// Import the path module to handle file paths
-const path = require('path'); 
+const fs = require('fs');
+const path = require('path');
+const { MongoClient } = require('mongodb');
+
+// MongoDB connection URL
+const url = 'mongodb://127.0.0.1:27017';
+const dbName = 'fileOrganizer'; 
 
 // Function to organize files in a given folder
-function organizeFiles(folderPath) {
-  // Check if the folder path is provided
-  if (!folderPath) {
-    console.log("Please provide a folder path!"); // Prompt user to give a folder path if missing
-    return; // Stop the function execution
-  }
-
-  // Define the file types and their corresponding folder names
-  const types = {
-    Images: ['.jpg', '.jpeg', '.png', '.gif'], // Image file extensions
-    Documents: ['.pdf', '.doc', '.txt'],       // Document file extensions
-    Videos: ['.mp4', '.mkv'],                 // Video file extensions
-  };
-
-  // Read all files in the specified folder
-  const files = fs.readdirSync(folderPath);
-
-  // Loop through each file in the folder
-  files.forEach((file) => {
-    // Get the file extension of the current file
-    const ext = path.extname(file); 
-
-    // Default folder name if file doesn't match any type
-    let folderName = 'Others'; 
-
-    // Check which type the file belongs to
-    for (let type in types) {
-      // If the extension matches, set folderName to the corresponding type
-      if (types[type].includes(ext)) {
-        folderName = type; 
-        break; // Stop checking further as we've found the type
-      }
+async function organizeFiles(folderPath) {
+    if (!folderPath) {
+        console.log("Please provide a folder path!");
+        return;
     }
 
-    // Define the path for the organized folder
-    const organizedFolderPath = path.join(folderPath, 'Organized_Files', folderName);
+    const types = {
+        Images: ['.jpg', '.jpeg', '.png', '.gif'],
+        Documents: ['.pdf', '.doc', '.txt'],
+        Videos: ['.mp4', '.mkv'],
+    };
 
-    // Create the folder if it doesn't already exist
-    if (!fs.existsSync(organizedFolderPath)) {
-      fs.mkdirSync(organizedFolderPath, { recursive: true }); // Create folder and any missing parent folders
+    const files = fs.readdirSync(folderPath);
+
+    // Connect to MongoDB
+    const client = new MongoClient(url);
+    try {
+        await client.connect();
+        console.log("Connected to MongoDB");
+        const db = client.db(dbName);
+        const collection = db.collection('organizedFiles');
+
+        // Loop through each file in the folder
+        for (let file of files) {
+            const ext = path.extname(file);
+            let folderName = 'Others';
+
+            for (let type in types) {
+                if (types[type].includes(ext)) {
+                    folderName = type;
+                    break;
+                }
+            }
+
+            const organizedFolderPath = path.join(folderPath, 'Organized_Files', folderName);
+            if (!fs.existsSync(organizedFolderPath)) {
+                fs.mkdirSync(organizedFolderPath, { recursive: true });
+            }
+
+            const sourcePath = path.join(folderPath, file);
+            const destinationPath = path.join(organizedFolderPath, file);
+            fs.renameSync(sourcePath, destinationPath);
+
+            // Insert organized file info into MongoDB
+            await collection.insertOne({
+                fileName: file,
+                folder: folderName,
+                organizedAt: new Date()
+            });
+        }
+
+        console.log("Files organized successfully!");
+    } catch (error) {
+        console.error("Error organizing files:", error);
+    } finally {
+        await client.close();
     }
-
-    // Define the source path (original location of the file)
-    const sourcePath = path.join(folderPath, file);
-
-    // Define the destination path (organized folder location)
-    const destinationPath = path.join(organizedFolderPath, file);
-
-    // Move the file from source to destination
-    fs.renameSync(sourcePath, destinationPath); 
-  });
-
-  // Log success message after organizing all files
-  console.log("Files organized successfully!");
 }
 
-// Run the function with a test folder
-organizeFiles('./test_folder'); 
-
+organizeFiles('./test_folder');
